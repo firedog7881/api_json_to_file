@@ -1,0 +1,6 @@
+.vscode/
+config/
+enSiloEventToXMLvenv/
+events/
+log/
+tracking/
