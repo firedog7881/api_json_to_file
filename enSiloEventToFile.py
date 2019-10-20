@@ -1,18 +1,18 @@
 
 """Pull events from the enSilo API and store in a folder with each file as a separate file
-# ******************TO DO LIST*******************
-# DONE - Add organization name to save log files under organization name
-# Figure out how to pull the raw events for each event
-# Add conversion to XML and save to file
-# Pull organization list, Iterate through organization list and pull logs for each organization
-# Ask for specific configurations (un/pw, organization(s), disable api call, retrieve raw data, save to xml, save to json)
-# While gettting password need to hash
-# error handling throughout
-# After asking for ensilo console name - pull list of organizations to choose from
+ ******************TO DO LIST*******************
+ DONE - Add organization name to save log files under organization name
+ Figure out how to pull the raw events for each event
+ Add conversion to XML and save to file
+ Pull organization list, Iterate through organization list and pull logs for each organization
+ Ask for specific configurations (un/pw, organization(s), disable api call, retrieve raw data, save to xml, save to json)
+ While gettting password need to hash
+ error handling throughout
+ After asking for ensilo console name - pull list of organizations to choose from
 
-# BUG FIXES NEEDED
-# error if trying to run XML
-# error if both dates are not available for URL on subsequent calls, tried to run new pull if error, need to verify
+ BUG FIXES NEEDED
+ error if trying to run XML
+  error if both dates are not available for URL on subsequent calls, tried to run new pull if error, need to verify
 """
 import json
 import requests
@@ -21,177 +21,6 @@ import datetime
 import logging
 import os
 from collections import defaultdict
-
-
-logs_location = './log/ensilo_API_event_to_file.log'
-os.makedirs(os.path.dirname(logs_location), exist_ok=True)
-
-config_file_location = './config/ensilo_event.config'
-os.makedirs(os.path.dirname(config_file_location), exist_ok=True)
-
-with open(logs_location,'a+') as outfile:
-  current_run_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-  outfile.write(f'{current_run_time} STARTING SCRIPT - Retrieve enSilo events and save to JSON and XML\n')
-logging.basicConfig(filename=logs_location, level=logging.INFO, format='%(asctime)s %(message)s', datefmt='%Y %m %d %H:%M:%S')
-
-# CONFIGURATION 
-
-# Initialize the dictionary for configuration settings
-config_data = {'enSilo_URL_customer_name':{'name':'enSilo Instance Name','type':'text','setting':'','question':f'enSilo console name (https://THIS.console.ensilo.com): '},
-    'enSilo_organization_name':{'name':'Organization Name','type':'text','setting':'','question':f'What is the name of the organization to pull events from - name must be exact: '},
-    'enable_API_calls':{'name':'Enable API Calls','type':'bool','setting':False,'question':f'Do you want to enable API calls (This can be disabled for testing)? (y/n): '},
-    'Retrieve_Raw_Data':{'name':'Retrieve Raw Data files','type':'bool','setting':False,'question':f'Do you want to retrieve the raw data files for events? (y/n): '},
-    'save_json_to_file':{'name':'Save file in JSON format','type':'bool','setting':True,'question':f'Do you want to save events in JSON format? (y/n): '},
-    'save_xml_to_file':{'name':'Savefile in XML format (currently not supported)','type':'bool','setting':False,'question':f'Do you want to save events in XML format? (y/n): '},
-    'convert_for_fortisiem':{'name':'Format XML for FortiSIEM (currently not supported)','type':'bool','setting':False,'question':f'Do you want to convert XML data for FortiSIEM? (y/n): '},
-    'retrieve_from_all_organizations':{'name':'Retrive events from ALL organizations','type':'bool','setting':False,'question':f'Do you want to retrieve events from all organizations? (y/n): '},
-    'separate_per_organization':{'name':'Separate events into folders','type':'bool','setting':False,'question':f'Do you want to separate events from different organizations into folders? (y/n): '},
-    'save_config_to_file':{'name':'Save this config to a file','type':'bool','setting':True,'question':f'Do you want to save this configuration for next time? (y/n): '},
-    'error':{'result':False,'code':''},
-    }
-config_temp = config_data
-# Get the configuration from the saved file
-
-def func_getConfigurationFromFile(config_file_location):
-  try:
-    with open(config_file_location, 'r') as file_data:
-        configJSON = json.load(file_data)
-        logging.info(f'Config file found at {config_file_location}')
-        return configJSON
-  except (FileNotFoundError, IOError) as e:
-    print(f'{e}')
-    logging.info(f'Config file error')
-    code = {'error':{'result':True,'code':'file error'}}
-    return code
-
-# convert user's y or n responses to boolean values
-def func_getBoolAnswerFromUser(console_question):
-  while True:
-    question = input(console_question)
-    if question in ('Y','y'):
-      return True
-    if question in ('N','n'):
-      return False
-    else:
-      print(f'You must choose y or n. Please respond again')
-
-# Ask the user configuration questions - if bool use bool function otherwise add input value
-def func_askUserForConfiguration():
-  satisfied = False
-  while not satisfied:
-    for key in config_data:
-      if key not in ('error',):
-        user_question = config_data[key]['question']
-        if config_data[key]['type'] == 'bool':
-          user_response = func_getBoolAnswerFromUser(user_question)
-        if config_data[key]['type'] == 'text':
-          user_response = input(user_question)
-        config_temp[key]['setting'] = user_response
-    config_temp['error']['result'] = False
-    func_printConfig(config_temp)
-    satisfied = func_getBoolAnswerFromUser(f'Are you satisfied with your configuration? (y/n)')
-    
-
-def func_printConfig(config_dict):
-  if config_dict['error']['result']:
-    print(f'Error in retrieving config data from file')
-  else:
-    print(f'Here is your existing configuration')
-    for key in config_dict:
-      if key not in ('save_config_to_file','error'):
-        output_string = config_dict[key]['setting']
-        output = f'{key}: {output_string}'
-        print(f'{output}')
-    
-
-def func_populateConfigData(config_dict):
-  for key in config_dict:
-    if key not in ('error',):
-      setting_string = config_dict[key]['setting']
-      config_data[key]['setting'] = setting_string
-  logging.info(f'Saved configuration imported into runtime')
-
-config_from_file = func_getConfigurationFromFile(config_file_location)
-config_temp.update(config_from_file)
-
-if config_temp['error']['result']:
-  logging.info(f'Configuration NOT FOUND, will get config from user')
-  print(f'No configuration found, please configure settings')
-  func_askUserForConfiguration()
-  func_populateConfigData(config_temp)
-  use_existing_config = False
-else:  
-  func_printConfig(config_temp)
-  user_input_view_config = input(f'Would you like to use this existing configuration? (y/n): ')
-  if user_input_view_config in ('y','Y'):
-    if config_temp['error']['result']:
-        question = input(f'Error retrieving config file. Would you like to continue with manual configuration? (y/n)')
-        if question in ('y','Y'):
-          func_askUserForConfiguration()
-          func_populateConfigData(config_temp)
-          use_existing_config = False
-        if question in ('n','N'):
-          question = input(f'Are you sure you want to exit? (y/n)')
-          if question in ('y','Y'):
-            logging.info(f'Exiting after confirmation from user')
-            exit()
-          if question in ('n','N'):
-            func_askUserForConfiguration()
-            func_populateConfigData(config_temp)
-            use_existing_config = False
-    else:
-      print(f'Using existing configuration')
-      logging.info(f'Using existing configuration')
-      func_populateConfigData(config_temp)
-      print(f'Configuration loaded, moving on')
-      use_existing_config = True
-          
-  if user_input_view_config in ('n','N'):
-    func_askUserForConfiguration()
-    func_populateConfigData(config_temp)
-    use_existing_config = False
-
-if not use_existing_config:
-  if config_data['save_config_to_file']['setting']:
-    try:
-      with open(config_file_location, 'w+') as config_outfile:
-        json.dump(config_data, config_outfile)
-        logging.info(f'Config file saved at {config_file_location}')
-    except IOError:
-      print(f'IOError saving configuration file - CONFIGURATION NOT SAVED')
-      logging.info(f'Configuration File NOT SAVED') 
-
-enSilo_URL_customer_name = config_data['enSilo_URL_customer_name']['setting']
-enSilo_organization_name = config_data['enSilo_organization_name']['setting']
-enable_API_calls = config_data['enable_API_calls']['setting']
-Retrieve_Raw_Data = config_data['Retrieve_Raw_Data']['setting']
-save_json_to_file = config_data['save_json_to_file']['setting']
-save_xml_to_file = config_data['save_xml_to_file']['setting']
-convert_for_fortisiem = config_data['convert_for_fortisiem']['setting']
-retrieve_from_all_organizations = config_data['retrieve_from_all_organizations']['setting']
-separate_per_organization = config_data['separate_per_organization']['setting']
-save_config_to_file = config_data['save_config_to_file']['setting']
-
-enSilo_API_URL = f'https://{enSilo_URL_customer_name}.console.ensilo.com/management-rest/'
-
-
-logging.info(f'Connecting to URL base: {enSilo_API_URL}')
-logging.info(f'Organization: {enSilo_organization_name}')
-un = 'brandon_api'   # need to retrieve at runtime from user
-pw = 'MasterPassword' # need to retrieve at runtime from user, hash
-if separate_per_organization:
-  event_save_file_location = f'./events/{enSilo_organization_name}/'
-else:
-  event_save_file_location = './events/'
-event_tracking_file_location = './tracking/tracking.txt'
-os.makedirs(os.path.dirname(event_tracking_file_location), exist_ok=True)
-os.makedirs(os.path.dirname(event_save_file_location), exist_ok=True)
-
-# ************enSilo URL conditions***********
-URL_params = {'organization': enSilo_organization_name}
-URL_headers = ''
-URL_body = ''
-
 
 # ************GLOBAL VARIABLES***************
 # This variable is used to store the eventIDs that have been retrieved from the API on this iteration
@@ -217,9 +46,8 @@ new_events = set()
 json_event = ''
 new_events_remaining = False
 
-
 # ***************FUNCTIONS****************
-# input is meant to determine if it is a request for an event or organization list or raw event
+# input is to type - event or organization list or raw event
 def func_buildURL(request_type):
   if request_type == 'event':  
     current_run_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -365,7 +193,167 @@ def func_getEventWriteFile():
   logging.info(f'Completed creating files')
   first_run = False
 
+def func_getConfigurationFromFile(config_file_location):
+  try:
+    with open(config_file_location, 'r') as file_data:
+        configJSON = json.load(file_data)
+        logging.info(f'Config file found at {config_file_location}')
+        return configJSON
+  except (FileNotFoundError, IOError) as e:
+    print(f'{e}')
+    logging.info(f'Config file error')
+    code = {'error':{'result':True,'code':'file error'}}
+    return code
 
+# convert user's y or n responses to boolean values
+def func_getBoolAnswerFromUser(console_question):
+  while True:
+    question = input(console_question)
+    if question in ('Y','y'):
+      return True
+    if question in ('N','n'):
+      return False
+    else:
+      print(f'You must choose y or n. Please respond again')
+
+# Ask the user configuration questions - if bool use bool function otherwise add input value
+def func_askUserForConfiguration():
+  satisfied = False
+  while not satisfied:
+    for key in config_data:
+      if key not in ('error',):
+        user_question = config_data[key]['question']
+        if config_data[key]['type'] == 'bool':
+          user_response = func_getBoolAnswerFromUser(user_question)
+        if config_data[key]['type'] == 'text':
+          user_response = input(user_question)
+        config_temp[key]['setting'] = user_response
+    config_temp['error']['result'] = False
+    func_printConfig(config_temp)
+    satisfied = func_getBoolAnswerFromUser(f'Are you satisfied with your configuration? (y/n)')
+    
+
+def func_printConfig(config_dict):
+  if config_dict['error']['result']:
+    print(f'Error in retrieving config data from file')
+  else:
+    print(f'Here is your existing configuration')
+    for key in config_dict:
+      if key not in ('save_config_to_file','error'):
+        output_string = config_dict[key]['setting']
+        output = f'{key}: {output_string}'
+        print(f'{output}')
+    
+
+def func_populateConfigData(config_dict):
+  for key in config_dict:
+    if key not in ('error',):
+      setting_string = config_dict[key]['setting']
+      config_data[key]['setting'] = setting_string
+  logging.info(f'Saved configuration imported into runtime')
+
+# ********END OF FUNCTIONS********
+
+# *********LOGGING**********
+logs_location = './log/ensilo_API_event_to_file.log'
+os.makedirs(os.path.dirname(logs_location), exist_ok=True)
+
+config_file_location = './config/ensilo_event.config'
+os.makedirs(os.path.dirname(config_file_location), exist_ok=True)
+
+with open(logs_location,'a+') as outfile:
+  current_run_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+  outfile.write(f'{current_run_time} STARTING SCRIPT - Retrieve enSilo events and save to JSON and XML\n')
+logging.basicConfig(filename=logs_location, level=logging.INFO, format='%(asctime)s %(message)s', datefmt='%Y %m %d %H:%M:%S')
+
+# ********END OF LOGGING**********
+
+
+# *********CONFIGURATION**********
+
+# Initialize the dictionary for configuration settings
+config_data = {'enSilo_URL_customer_name':{'name':'enSilo Instance Name','type':'text','setting':'','question':f'enSilo console name (https://THIS.console.ensilo.com): '},
+    'enSilo_organization_name':{'name':'Organization Name','type':'text','setting':'','question':f'What is the name of the organization to pull events from - name must be exact: '},
+    'enable_API_calls':{'name':'Enable API Calls','type':'bool','setting':False,'question':f'Do you want to enable API calls (This can be disabled for testing)? (y/n): '},
+    'Retrieve_Raw_Data':{'name':'Retrieve Raw Data files','type':'bool','setting':False,'question':f'Do you want to retrieve the raw data files for events? (y/n): '},
+    'save_json_to_file':{'name':'Save file in JSON format','type':'bool','setting':True,'question':f'Do you want to save events in JSON format? (y/n): '},
+    'save_xml_to_file':{'name':'Savefile in XML format (currently not supported)','type':'bool','setting':False,'question':f'Do you want to save events in XML format? (y/n): '},
+    'convert_for_fortisiem':{'name':'Format XML for FortiSIEM (currently not supported)','type':'bool','setting':False,'question':f'Do you want to convert XML data for FortiSIEM? (y/n): '},
+    'retrieve_from_all_organizations':{'name':'Retrive events from ALL organizations','type':'bool','setting':False,'question':f'Do you want to retrieve events from all organizations? (y/n): '},
+    'separate_per_organization':{'name':'Separate events into folders','type':'bool','setting':False,'question':f'Do you want to separate events from different organizations into folders? (y/n): '},
+    'save_config_to_file':{'name':'Save this config to a file','type':'bool','setting':True,'question':f'Do you want to save this configuration for next time? (y/n): '},
+    'error':{'result':False,'code':''},
+    }
+# Create copy of config data to work with
+config_temp = config_data
+
+# Get the configuration from the saved file
+config_from_file = func_getConfigurationFromFile(config_file_location)
+config_temp.update(config_from_file)
+
+if config_temp['error']['result']:
+  logging.info(f'Configuration NOT FOUND, will get config from user')
+  print(f'No configuration found, please configure settings')
+  func_askUserForConfiguration()
+  func_populateConfigData(config_temp)
+  use_existing_config = False
+else:  
+  func_printConfig(config_temp)
+  user_input_view_config = input(f'Would you like to use this existing configuration? (y/n): ')
+  if user_input_view_config in ('y','Y'):
+    if config_temp['error']['result']:
+        question = input(f'Error retrieving config file. Would you like to continue with manual configuration? (y/n)')
+        if question in ('y','Y'):
+          func_askUserForConfiguration()
+          func_populateConfigData(config_temp)
+          use_existing_config = False
+        if question in ('n','N'):
+          question = input(f'Are you sure you want to exit? (y/n)')
+          if question in ('y','Y'):
+            logging.info(f'Exiting after confirmation from user')
+            exit()
+          if question in ('n','N'):
+            func_askUserForConfiguration()
+            func_populateConfigData(config_temp)
+            use_existing_config = False
+    else:
+      print(f'Using existing configuration')
+      logging.info(f'Using existing configuration')
+      func_populateConfigData(config_temp)
+      print(f'Configuration loaded, moving on')
+      use_existing_config = True
+          
+  if user_input_view_config in ('n','N'):
+    func_askUserForConfiguration()
+    func_populateConfigData(config_temp)
+    use_existing_config = False
+
+if not use_existing_config:
+  if config_data['save_config_to_file']['setting']:
+    try:
+      with open(config_file_location, 'w+') as config_outfile:
+        json.dump(config_data, config_outfile)
+        logging.info(f'Config file saved at {config_file_location}')
+    except IOError:
+      print(f'IOError saving configuration file - CONFIGURATION NOT SAVED')
+      logging.info(f'Configuration File NOT SAVED') 
+
+enSilo_URL_customer_name = config_data['enSilo_URL_customer_name']['setting']
+enSilo_organization_name = config_data['enSilo_organization_name']['setting']
+enable_API_calls = config_data['enable_API_calls']['setting']
+Retrieve_Raw_Data = config_data['Retrieve_Raw_Data']['setting']
+save_json_to_file = config_data['save_json_to_file']['setting']
+save_xml_to_file = config_data['save_xml_to_file']['setting']
+convert_for_fortisiem = config_data['convert_for_fortisiem']['setting']
+retrieve_from_all_organizations = config_data['retrieve_from_all_organizations']['setting']
+separate_per_organization = config_data['separate_per_organization']['setting']
+save_config_to_file = config_data['save_config_to_file']['setting']
+if separate_per_organization:
+  event_save_file_location = f'./events/{enSilo_organization_name}/'
+else:
+  event_save_file_location = './events/'
+event_tracking_file_location = './tracking/tracking.txt'
+enSilo_API_URL = f'https://{enSilo_URL_customer_name}.console.ensilo.com/management-rest/'
 # Logging of CONFIGURATION
 if enable_API_calls:
   logging.info(f'API Calls have been enabled')
@@ -376,9 +364,28 @@ if Retrieve_Raw_Data:
   logging.info(f'Retrieving Raw Data files from events')
 else:
   logging.info(f'Not retrieving Raw Data for events')
-  
+
 logging.info(f'Events being saved in {event_save_file_location}')
 logging.info(f'Event Tracking log file is being stored at {event_tracking_file_location}')
+# ********END OF CONFIGURATION******
+
+logging.info(f'Connecting to URL base: {enSilo_API_URL}')
+logging.info(f'Organization: {enSilo_organization_name}')
+un = 'brandon_api'   # need to retrieve at runtime from user
+pw = 'MasterPassword' # need to retrieve at runtime from user, hash
+
+os.makedirs(os.path.dirname(event_tracking_file_location), exist_ok=True)
+os.makedirs(os.path.dirname(event_save_file_location), exist_ok=True)
+
+# ************enSilo URL conditions***********
+URL_params = {'organization': enSilo_organization_name}
+URL_headers = ''
+URL_body = ''
+
+
+
+
+
 
 # Pull in historical EventIds if historical set is empty
 # If set is empty and there is no file it will continue
