@@ -64,7 +64,7 @@ def func_getConfigurationFromFile(config_file_location):
     code = {'error':{'result':True,'code':'file error'}}
     return code
 
-# convert user's y or no responses to boolean values
+# convert user's y or n responses to boolean values
 def func_getBoolAnswerFromUser(console_question):
   while True:
     question = input(console_question)
