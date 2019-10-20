@@ -1,6 +1,6 @@
 .vscode/
 config/
-enSiloEventToFile/
+venv/
 events/
 log/
 tracking/
