@@ -87,6 +87,7 @@ def func_askUserForConfiguration():
         if config_data[key]['type'] == 'text':
           user_response = input(user_question)
         config_temp[key]['setting'] = user_response
+    config_temp['error']['result'] = False
     func_printConfig(config_temp)
     satisfied = func_getBoolAnswerFromUser(f'Are you satisfied with your configuration? (y/n)')
     
@@ -171,7 +172,7 @@ retrieve_from_all_organizations = config_data['retrieve_from_all_organizations']
 separate_per_organization = config_data['separate_per_organization']['setting']
 save_config_to_file = config_data['save_config_to_file']['setting']
 
-enSilo_API_URL = f'https://{enSilo_URL_customer_name}.console.ensilo.com/management-rest/' # need to retrieve environment at runtime from user
+enSilo_API_URL = f'https://{enSilo_URL_customer_name}.console.ensilo.com/management-rest/'
 
 
 logging.info(f'Connecting to URL base: {enSilo_API_URL}')
@@ -240,10 +241,10 @@ def func_buildURL(request_type):
     request_type_url = 'events/list-events'
   if request_type == 'organization':
     request_type_url = 'organizations/list-organizations'
-  # Build URL to request events
   if enable_API_calls:
     events_request = requests.get(f'{enSilo_API_URL}{request_type_url}', auth=requests.auth.HTTPBasicAuth(un, pw), verify=False, params=URL_params)
     logging.info(f'Request sent for {request_type} to {events_request.url}')
+    print(f'Request sent for {request_type} to {events_request.url}')
     if events_request.status_code == 200:
       logging.info(f'Request successful - status code 200 received')
       requestJSON = events_request.json()
