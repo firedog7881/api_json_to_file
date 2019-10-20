@@ -49,7 +49,7 @@ config_data = {'enSilo_URL_customer_name':{'name':'enSilo Instance Name','type':
     'save_config_to_file':{'name':'Save this config to a file','type':'bool','setting':True,'question':f'Do you want to save this configuration for next time? (y/n): '},
     'error':{'result':False,'code':''},
     }
-
+config_temp = config_data
 # Get the configuration from the saved file
 
 def func_getConfigurationFromFile(config_file_location):
@@ -110,15 +110,15 @@ def func_populateConfigData(config_dict):
       config_data[key]['setting'] = setting_string
   logging.info(f'Saved configuration imported into runtime')
 
-#config_temp = lambda: defaultdict(config_temp)
-config_temp = defaultdict(dict)
-config_temp = func_getConfigurationFromFile(config_file_location)
+config_from_file = func_getConfigurationFromFile(config_file_location)
+config_temp.update(config_from_file)
 
-if config_temp['error']['result'] != 0:
+if config_temp['error']['result']:
   logging.info(f'Configuration NOT FOUND, will get config from user')
   print(f'No configuration found, please configure settings')
   func_askUserForConfiguration()
   func_populateConfigData(config_temp)
+  use_existing_config = False
 else:  
   func_printConfig(config_temp)
   user_input_view_config = input(f'Would you like to use this existing configuration? (y/n): ')
