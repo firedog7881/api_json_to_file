@@ -138,21 +138,21 @@ def func_saveEventToFile(requestJSON):
     if save_json_to_file:
       logging.info(f'Preparing JSON to save to file for event ID {this_event_id}')
       file_save = f'{event_save_file_location}json/enSilo_event_{this_event_id}.json'
-      
+      os.makedirs(os.path.dirname(file_save), exist_ok=True)
       try:
-        with open(file_save, 'w+') as outfile:
-          json.dump(requestJSON, outfile)
+        with open(file_save, 'w+') as jsonfile:
+          json.dump(requestJSON, jsonfile)
           logging.info(f'JSON for {this_event_id} saved to {file_save}')
       except IOError:
-        logging.info(f'Error writing EventID %s file to disk at location {this_event_id, file_save}')
+        logging.info(f'Error writing EventID {this_event_id} file to disk at location {file_save}')
     if save_xml_to_file:
       print(f'XML NOT IMPLEMENTED')
       logging.info(f'XML NOT IMPLEMENTED')
       return
     historical_eventID_set.add(this_event_id)
     try:
-      with open(event_tracking_file_location, 'a+') as outfile:
-        outfile.write(f'{this_event_id}\n')
+      with open(event_tracking_file_location, 'a+') as jsonfile:
+        jsonfile.write(f'{this_event_id}\n')
     except IOError:
       logging.info(f'Error writing EventID to tracking file location {this_event_id}')
 
