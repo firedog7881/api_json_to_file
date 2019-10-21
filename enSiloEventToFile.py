@@ -21,6 +21,7 @@ import datetime
 import logging
 import os
 from collections import defaultdict
+import getpass
 
 # ************GLOBAL VARIABLES***************
 # This variable is used to store the eventIDs that have been retrieved from the API on this iteration
@@ -45,7 +46,7 @@ latest_event_time = datetime.datetime(year=1900,month=1,day=1)
 new_events = set()
 json_event = ''
 new_events_remaining = False
-
+URL_params = {}
 # ***************FUNCTIONS****************
 # input is to type - event or organization list or raw event
 def func_buildURL(request_type):
@@ -67,6 +68,7 @@ def func_buildURL(request_type):
         logging.info(f'This is not the first pass - Sending request to retrieve events from {latest_event_time}')
         URL_params.update({'lastSeenFrom': latest_event_time, 'lastSeenTo': current_run_time})
     request_type_url = 'events/list-events'
+    URL_params.update({'organization':enSilo_organization_name})
   if request_type == 'organization':
     request_type_url = 'organizations/list-organizations'
   if enable_API_calls:
@@ -187,6 +189,8 @@ def func_getEventWriteFile():
       logging.info(f'Error in new_events Set - Set is Empty')
 
     for event in json_event:
+      # This can be greatly optimized by doing for each in set locate the dictionary key for event ID
+      # Right now it is scanning through the JSON data
       if event['eventId'] == magic_eventId: # for each event in the list match with the popped ID and pull that data
         logging.info(f'Event ID {magic_eventId} was found, saving to file')
         func_saveEventToFile(event)
@@ -221,12 +225,19 @@ def func_askUserForConfiguration():
   satisfied = False
   while not satisfied:
     for key in config_data:
-      if key not in ('error',):
+      if key not in ('error','enSilo_URL_customer_name'):
         user_question = config_data[key]['question']
         if config_data[key]['type'] == 'bool':
           user_response = func_getBoolAnswerFromUser(user_question)
         if config_data[key]['type'] == 'text':
-          user_response = input(user_question)
+          if key == 'enSilo_organization_name':
+            org_response = func_getBoolAnswerFromUser('Would like like see a list of organizations? (y/n)')
+            if org_response:
+              user_response = func_printOrgsGetResponse(list_organizations)
+            else:
+              user_response = input(user_question)
+          else:
+            user_response = input(user_question)
         config_temp[key]['setting'] = user_response
     config_temp['error']['result'] = False
     func_printConfig(config_temp)
@@ -242,15 +253,28 @@ def func_printConfig(config_dict):
       if key not in ('save_config_to_file','error'):
         output_string = config_dict[key]['setting']
         output = f'{key}: {output_string}'
-        print(f'{output}')
+        print(output)
     
-
 def func_populateConfigData(config_dict):
   for key in config_dict:
     if key not in ('error',):
       setting_string = config_dict[key]['setting']
       config_data[key]['setting'] = setting_string
   logging.info(f'Saved configuration imported into runtime')
+
+def func_printOrgsGetResponse(list_organizations):
+  for (i, org) in enumerate(list_organizations):
+    print(f'{i}: {org}')
+  while True:
+    user_input = input(f'Which organization would you like to pull logs for? Enter #: ')
+    try:
+      val = int(user_input)
+      if val >= 0 and val < len(list_organizations):
+        result = list_organizations[val]
+        return result
+    except ValueError:
+      print(f'Please input a number.')  
+
 
 # ********END OF FUNCTIONS********
 
@@ -274,7 +298,7 @@ logging.basicConfig(filename=logs_location, level=logging.INFO, format='%(asctim
 # Initialize the dictionary for configuration settings
 config_data = {'enSilo_URL_customer_name':{'name':'enSilo Instance Name','type':'text','setting':'','question':f'enSilo console name (https://THIS.console.ensilo.com): '},
     'enSilo_organization_name':{'name':'Organization Name','type':'text','setting':'','question':f'What is the name of the organization to pull events from - name must be exact: '},
-    'enable_API_calls':{'name':'Enable API Calls','type':'bool','setting':False,'question':f'Do you want to enable API calls (This can be disabled for testing)? (y/n): '},
+    'enable_API_calls':{'name':'Enable API Calls','type':'bool','setting':True,'question':f'Do you want to enable API calls (This can be disabled for testing)? (y/n): '},
     'Retrieve_Raw_Data':{'name':'Retrieve Raw Data files','type':'bool','setting':False,'question':f'Do you want to retrieve the raw data files for events? (y/n): '},
     'save_json_to_file':{'name':'Save file in JSON format','type':'bool','setting':True,'question':f'Do you want to save events in JSON format? (y/n): '},
     'save_xml_to_file':{'name':'Savefile in XML format (currently not supported)','type':'bool','setting':False,'question':f'Do you want to save events in XML format? (y/n): '},
@@ -287,10 +311,30 @@ config_data = {'enSilo_URL_customer_name':{'name':'enSilo Instance Name','type':
 # Create copy of config data to work with
 config_temp = config_data
 
+un = input('Username: ') # 'brandon_api'   # need to retrieve at runtime from user
+pw = getpass.getpass(prompt='Password: ', stream=None)  # 'MasterPassword' # need to retrieve at runtime from user
+config_data['enSilo_URL_customer_name']['setting'] = input(config_data['enSilo_URL_customer_name']['question'])
+
+enSilo_URL_customer_name = config_data['enSilo_URL_customer_name']['setting']
+enSilo_organization_name = config_data['enSilo_organization_name']['setting']
+enable_API_calls = config_data['enable_API_calls']['setting']
+Retrieve_Raw_Data = config_data['Retrieve_Raw_Data']['setting']
+save_json_to_file = config_data['save_json_to_file']['setting']
+save_xml_to_file = config_data['save_xml_to_file']['setting']
+convert_for_fortisiem = config_data['convert_for_fortisiem']['setting']
+retrieve_from_all_organizations = config_data['retrieve_from_all_organizations']['setting']
+separate_per_organization = config_data['separate_per_organization']['setting']
+save_config_to_file = config_data['save_config_to_file']['setting']  
+
+enSilo_API_URL = f'https://{enSilo_URL_customer_name}.console.ensilo.com/management-rest/'
+URL_params = {'organization': enSilo_organization_name}
+
+
 # Get the configuration from the saved file
 config_from_file = func_getConfigurationFromFile(config_file_location)
 config_temp.update(config_from_file)
-
+json_organizations = func_buildURL('organization')
+list_organizations = func_listOrganizations(json_organizations)
 if config_temp['error']['result']:
   logging.info(f'Configuration NOT FOUND, will get config from user')
   print(f'No configuration found, please configure settings')
@@ -338,22 +382,13 @@ if not use_existing_config:
       print(f'IOError saving configuration file - CONFIGURATION NOT SAVED')
       logging.info(f'Configuration File NOT SAVED') 
 
-enSilo_URL_customer_name = config_data['enSilo_URL_customer_name']['setting']
-enSilo_organization_name = config_data['enSilo_organization_name']['setting']
-enable_API_calls = config_data['enable_API_calls']['setting']
-Retrieve_Raw_Data = config_data['Retrieve_Raw_Data']['setting']
-save_json_to_file = config_data['save_json_to_file']['setting']
-save_xml_to_file = config_data['save_xml_to_file']['setting']
-convert_for_fortisiem = config_data['convert_for_fortisiem']['setting']
-retrieve_from_all_organizations = config_data['retrieve_from_all_organizations']['setting']
-separate_per_organization = config_data['separate_per_organization']['setting']
-save_config_to_file = config_data['save_config_to_file']['setting']
 if separate_per_organization:
   event_save_file_location = f'./events/{enSilo_organization_name}/'
 else:
   event_save_file_location = './events/'
+
 event_tracking_file_location = './tracking/tracking.txt'
-enSilo_API_URL = f'https://{enSilo_URL_customer_name}.console.ensilo.com/management-rest/'
+
 # Logging of CONFIGURATION
 if enable_API_calls:
   logging.info(f'API Calls have been enabled')
@@ -371,20 +406,10 @@ logging.info(f'Event Tracking log file is being stored at {event_tracking_file_l
 
 logging.info(f'Connecting to URL base: {enSilo_API_URL}')
 logging.info(f'Organization: {enSilo_organization_name}')
-un = 'brandon_api'   # need to retrieve at runtime from user
-pw = 'MasterPassword' # need to retrieve at runtime from user, hash
+
 
 os.makedirs(os.path.dirname(event_tracking_file_location), exist_ok=True)
 os.makedirs(os.path.dirname(event_save_file_location), exist_ok=True)
-
-# ************enSilo URL conditions***********
-URL_params = {'organization': enSilo_organization_name}
-URL_headers = ''
-URL_body = ''
-
-
-
-
 
 
 # Pull in historical EventIds if historical set is empty
@@ -393,10 +418,6 @@ if not historical_eventID_set:
   func_getEventIDsFromFile()
 
 while failed_counter < 6:
-  json_organizations = func_buildURL('organization')
-  json_organizations = defaultdict(dict)
-  list_organizations = func_listOrganizations(json_organizations)
-
   json_event = func_buildURL('event')
   if json_event == -2:    # -2 indicates one of the dates for the URL was missing, we should clear and try again
     first_run = True
