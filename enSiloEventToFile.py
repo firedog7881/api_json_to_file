@@ -50,6 +50,7 @@ URL_params = {}
 # This function is used to build out the URL that will be making the API call
 # 
 def func_buildURL(request_type):
+  enSilo_API_URL = f'https://{enSilo_URL_customer_name}.console.ensilo.com/management-rest/'
   if request_type == 'event':  
     current_run_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     # when successful change the first_run to indicate it is not
@@ -77,9 +78,17 @@ def func_buildURL(request_type):
     URL_params.update({'organization':enSilo_organization_name})    # include the organization name in the API call
   if request_type == 'organization':
     request_type_url = 'organizations/list-organizations'    # indicate this API call is for organizations
+  if request_type == 'raw_event':
+    request_type_url = 'events/list-raw-data-items'    # indicate this API call is for raw event Ids
+  enSilo_API_URL_full = f'{enSilo_API_URL}{request_type_url}'
+  return enSilo_API_URL_full
+
+
+
+def func_sendAPIrequest(API_URL,request_type): 
   if enable_API_calls:    # Disabled if testing and will pull from a file instead of URL if testing offline
     # this is the main point of the URL request, the URL is built out based on the parameters of the call
-    events_request = requests.get(f'{enSilo_API_URL}{request_type_url}', auth=requests.auth.HTTPBasicAuth(un, f.decrypt(pw_encrypted)), verify=False, params=URL_params)
+    events_request = requests.get(f'{API_URL}', auth=requests.auth.HTTPBasicAuth(un, f.decrypt(pw_encrypted)), verify=False, params=URL_params)
     logging.info(f'Request sent for {request_type} to {events_request.url}')
     print(f'Request sent for {request_type} to {events_request.url}')
     if events_request.status_code == 200:    # 200 code is success
@@ -361,10 +370,9 @@ separate_per_organization = config_data['separate_per_organization']['setting']
 save_config_to_file = config_data['save_config_to_file']['setting']  
 
 # Base API URL used to access enSilo API endpoints
-enSilo_API_URL = f'https://{enSilo_URL_customer_name}.console.ensilo.com/management-rest/'
-URL_params = {'organization': enSilo_organization_name}
 
-json_organizations = func_buildURL('organization')    # Get JSON of organizations
+json_organizations_url = func_buildURL('organization')    # Get JSON of organizations
+json_organizations = func_sendAPIrequest(json_organizations_url,'organization')
 list_organizations = func_listOrganizations(json_organizations)    # Populate list of organization names
 
 # This gets the configuration from the user
@@ -437,9 +445,6 @@ logging.info(f'Events being saved in {event_save_file_location}')
 logging.info(f'Event Tracking log file is being stored at {event_tracking_file_location}')
 # ********END OF CONFIGURATION******
 
-logging.info(f'Connecting to URL base: {enSilo_API_URL}')
-logging.info(f'Organization: {enSilo_organization_name}')
-
 # Create directories for logging and tracking
 os.makedirs(os.path.dirname(event_tracking_file_location), exist_ok=True)
 os.makedirs(os.path.dirname(event_save_file_location), exist_ok=True)
@@ -451,10 +456,12 @@ if not historical_eventID_set:
   func_getEventIDsFromFile()
 
 while failed_counter < 6:
-  json_event = func_buildURL('event')    # Get the event data from API
+  json_event_url = func_buildURL('event')    # Get the event data from API
+  json_event = func_sendAPIrequest(json_event_url,'event')
   if json_event == -2:    # -2 indicates one of the dates for the URL was missing, we should clear and try again
     first_run = True
-    json_event = func_buildURL('event')
+    json_event_url = func_buildURL('event')
+    json_event = func_sendAPIrequest(json_event_url,'event')
   if json_event == -1:    # -1 means there was a URL response error code
     failed_counter+=1
     logging.info(f'API call has failed {failed_counter} times')
