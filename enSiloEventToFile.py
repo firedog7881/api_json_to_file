@@ -49,14 +49,14 @@ URL_params = {}
 # input is type - event or organization list or raw event (to be added)
 # This function is used to build out the URL that will be making the API call
 # 
-def func_buildURL(request_type):
+def func_buildURL(request_type,eventId=000000):
+  global first_run
+  global latest_event_time
   enSilo_API_URL = f'https://{enSilo_URL_customer_name}.console.ensilo.com/management-rest/'
   if request_type == 'event':  
     current_run_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     # when successful change the first_run to indicate it is not
-    global first_run
     # set when the latest run was done
-    global latest_event_time
     # Checking if this is the first run. Make sure that the dates are populated before building the URL stream
     # need to change how to detect when a first run, need to take into account when running for a different organization
     if first_run:  
@@ -73,19 +73,35 @@ def func_buildURL(request_type):
       else:
         #if everything comes out ok then set the URL Parameters for the API to include the times
         logging.info(f'This is not the first pass - Sending request to retrieve events from {latest_event_time}')
-        URL_params.update({'lastSeenFrom': latest_event_time, 'lastSeenTo': current_run_time})
+        
     request_type_url = 'events/list-events'    # indicate this API call is for events
-    URL_params.update({'organization':enSilo_organization_name})    # include the organization name in the API call
   if request_type == 'organization':
     request_type_url = 'organizations/list-organizations'    # indicate this API call is for organizations
   if request_type == 'raw_event':
-    request_type_url = 'events/list-raw-data-items'    # indicate this API call is for raw event Ids
+    if eventId == 000000:
+      raise Exception(f'No eventId sent with raw_event as request_type')
+    else:  
+      request_type_url = 'events/list-raw-data-items'    # indicate this API call is for raw event Ids
   enSilo_API_URL_full = f'{enSilo_API_URL}{request_type_url}'
   return enSilo_API_URL_full
 
 
 
-def func_sendAPIrequest(API_URL,request_type): 
+def func_sendAPIrequest(API_URL,request_type='none',eventId=000000): 
+  global latest_event_time
+  global URL_params
+  if request_type == 'event':
+    URL_params.update(URL_params.update({'lastSeenFrom':latest_event_time, 'lastSeenTo':current_run_time}))
+  if request_type == 'organization':
+    URL_params = {}
+  if request_type == 'raw_event': 
+      if eventId == 000000:
+        return -3 # no eventId given
+      else:
+        URL_params.update({'eventId':eventId, 'organization':enSilo_organization_name})
+  if request_type == 'none':
+    return -4 # no request type provided
+   
   if enable_API_calls:    # Disabled if testing and will pull from a file instead of URL if testing offline
     # this is the main point of the URL request, the URL is built out based on the parameters of the call
     events_request = requests.get(f'{API_URL}', auth=requests.auth.HTTPBasicAuth(un, f.decrypt(pw_encrypted)), verify=False, params=URL_params)
@@ -98,7 +114,7 @@ def func_sendAPIrequest(API_URL,request_type):
       return  requestJSON
     else:
       # If a response other than 200 is returned then the call was unsuccessful
-      error = f'Error in response while trying to retrieve enSilo {request_type}. HTML Code {events_request.status_code} recieved'
+      error = f'Error in response while trying to retrieve enSilo {request_type}. HTML Code {events_request.status_code} received'
       logging.info(error)
       print(error)
       return -1    # Return error code
@@ -458,18 +474,19 @@ if not historical_eventID_set:
 while failed_counter < 6:
   json_event_url = func_buildURL('event')    # Get the event data from API
   json_event = func_sendAPIrequest(json_event_url,'event')
-  if json_event == -2:    # -2 indicates one of the dates for the URL was missing, we should clear and try again
-    first_run = True
-    json_event_url = func_buildURL('event')
-    json_event = func_sendAPIrequest(json_event_url,'event')
-  if json_event == -1:    # -1 means there was a URL response error code
-    failed_counter+=1
-    logging.info(f'API call has failed {failed_counter} times')
-    logging.info(f'Will wait for 5 miutes and try again {failed_counter - 5} more time(s)')
-    print(f'API call has failed {failed_counter} time(s). Check log file for more info')
-    print(f'Will wait for 5 miutes and will try again {failed_counter - 5} more times')
-    time.sleep(300)
-  if json_event not in (-1,-2):
+  if json_event in range(-10,0):
+    if json_event == -2:    # -2 indicates one of the dates for the URL was missing, we should clear and try again
+      first_run = True
+      json_event_url = func_buildURL('event')
+      json_event = func_sendAPIrequest(json_event_url,'event')
+    if json_event == -1:    # -1 means there was a URL response error code
+      failed_counter+=1
+      logging.info(f'API call has failed {failed_counter} times')
+      logging.info(f'Will wait for 5 miutes and try again {failed_counter - 5} more time(s)')
+      print(f'API call has failed {failed_counter} time(s). Check log file for more info')
+      print(f'Will wait for 5 miutes and will try again {failed_counter - 5} more times')
+      time.sleep(300)
+  if json_event not in range(-10,0):
     failed_counter = 0    # Used to prevent constant running if there are errors
     func_populateEventIdList(json_event) 
     new_events = func_compareBothSets()
