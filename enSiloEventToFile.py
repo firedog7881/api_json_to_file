@@ -82,51 +82,64 @@ def func_buildURL(request_type,eventId=000000):
       raise Exception(f'No eventId sent with raw_event as request_type')
     else:  
       request_type_url = 'events/list-raw-data-items'    # indicate this API call is for raw event Ids
+  if request_type == 'raw_event_file':
+    request_type_url = 'forensics/get-event-file'    
   enSilo_API_URL_full = f'{enSilo_API_URL}{request_type_url}'
   return enSilo_API_URL_full
 
-
-
-def func_sendAPIrequest(API_URL,request_type='none',eventId=000000): 
-  global latest_event_time
-  global URL_params
+def func_setURLParams(request_type,eventId=000000,rawEventId=0000000000):
+  global URL_params 
   if request_type == 'event':
-    URL_params.update(URL_params.update({'lastSeenFrom':latest_event_time, 'lastSeenTo':current_run_time}))
+    URL_params = {'lastSeenFrom':latest_event_time, 'lastSeenTo':current_run_time}
+    return True
   if request_type == 'organization':
     URL_params = {}
+    return True
   if request_type == 'raw_event': 
       if eventId == 000000:
-        return -3 # no eventId given
+        return False
       else:
-        URL_params.update({'eventId':eventId, 'organization':enSilo_organization_name})
+        URL_params = {'eventId':eventId,'organization':enSilo_organization_name}
+        return True
+  if request_type == 'raw_event_file':
+    if rawEventId == 0000000000:
+      return False  
+    else:
+      URL_params = {'rawEventId':rawEventId,'organization':enSilo_organization_name}
+      return True
   if request_type == 'none':
-    return -4 # no request type provided
-   
-  if enable_API_calls:    # Disabled if testing and will pull from a file instead of URL if testing offline
-    # this is the main point of the URL request, the URL is built out based on the parameters of the call
+    return False
+
+def func_getEventDataFromFile():
+  try:
+    with open('./demo_data.json','r') as file_data:
+      requestJSON = json.load(file_data)
+  except IOError:
+    print(f'Cannot load data from file, exiting')
+    print(f'{IOError}')
+    print(f'Have a nice day! Sorry.')
+    exit()
+  return  requestJSON
+
+
+def func_sendAPIrequest(API_URL,request_type):
+  global latest_event_time
+  URLParamsResult = func_setURLParams(request_type)
+  # this is the main point of the URL request, the URL is built out based on the parameters of the call
+  if URLParamsResult:
     events_request = requests.get(f'{API_URL}', auth=requests.auth.HTTPBasicAuth(un, f.decrypt(pw_encrypted)), verify=False, params=URL_params)
-    logging.info(f'Request sent for {request_type} to {events_request.url}')
-    print(f'Request sent for {request_type} to {events_request.url}')
+    logging.info(f'Request sent to {events_request.url}')
+    print(f'Request sent to {events_request.url}')
     if events_request.status_code == 200:    # 200 code is success
       logging.info(f'Request successful - status code 200 received')
       requestJSON = events_request.json()    # Store JSON response into JSON object
-      latest_event_time = datetime.datetime.now().replace(microsecond=0)    # Set latest event pull time
       return  requestJSON
     else:
       # If a response other than 200 is returned then the call was unsuccessful
-      error = f'Error in response while trying to retrieve enSilo {request_type}. HTML Code {events_request.status_code} received'
+      error = f'Error in response while trying to retrieve. HTML Code {events_request.status_code} received'
       logging.info(error)
       print(error)
       return -1    # Return error code
-  else:
-    #Pull in demo data for testing purposes since API Calls are disabled
-    if request_type == 'event':  
-      try:
-        with open('./demo_data.json','r') as file_data:
-          requestJSON = json.load(file_data)
-      except IOError:
-        print(f'{IOError}')
-      return  requestJSON
 
 def func_listOrganizations(json_org):
   # Store the list of organziations pulled from API for access later
@@ -159,6 +172,21 @@ def func_getEventIDsFromFile():
   except FileNotFoundError:
     logging.info('Import File not found. Continuing as first time run')
     first_run = True
+
+def func_getRawEventFile(rawEventId):
+  rawEventURL = func_buildURL(rawEventId)
+  URL_params = {'organization':enSilo_organization_name,'rawEventId':rawEventId}
+  raw_event_request = requests.get(f'{rawEventURL}', auth=requests.auth.HTTPBasicAuth(un, f.decrypt(pw_encrypted)), verify=False, params=URL_params)
+  if raw_event_request.status_code == 200:
+    os.makedirs(os.path.dirname(event_save_file_location), exist_ok=True)
+    open(event_save_file_location, 'w+').write(raw_event_request.content())
+    logging.info(f'Retrieving raw event file for {rawEventId}')
+    print(f'Retrieving raw event file for {rawEventId}')
+    return True
+  else:
+    logging.info(f'ERROR Retrieving raw event file for {rawEventId}')
+    print(f'ERROR Retrieving raw event file for {rawEventId}')
+    return False
 
 # This function is to save the eventData into a file
 # The eventID will be saved in the variable to keep which events have been pulled
@@ -472,37 +500,43 @@ if not historical_eventID_set:
   func_getEventIDsFromFile()
 
 while failed_counter < 6:
-  json_event_url = func_buildURL('event')    # Get the event data from API
-  json_event = func_sendAPIrequest(json_event_url,'event')
-  if json_event in range(-10,0):
-    if json_event == -2:    # -2 indicates one of the dates for the URL was missing, we should clear and try again
-      first_run = True
-      json_event_url = func_buildURL('event')
+  if enable_API_calls:
+    json_event_url = func_buildURL('event')    # Get the event data from API
+    if json_event_url in range(-10,0):
+      if json_event == -2:    # -2 indicates one of the dates for the URL was missing, we should clear and try again
+        first_run = True
+        json_event_url = func_buildURL('event')
+        json_event = func_sendAPIrequest(json_event_url,'event')
+      if json_event == -1:    # -1 means there was a URL response error code
+        failed_counter+=1
+        logging.info(f'API call has failed {failed_counter} times')
+        logging.info(f'Will wait for 5 miutes and try again {failed_counter - 5} more time(s)')
+        print(f'API call has failed {failed_counter} time(s). Check log file for more info')
+        print(f'Will wait for 5 miutes and will try again {failed_counter - 5} more times')
+        time.sleep(300)
+    if json_event_url not in range(-10,0):
       json_event = func_sendAPIrequest(json_event_url,'event')
-    if json_event == -1:    # -1 means there was a URL response error code
-      failed_counter+=1
-      logging.info(f'API call has failed {failed_counter} times')
-      logging.info(f'Will wait for 5 miutes and try again {failed_counter - 5} more time(s)')
-      print(f'API call has failed {failed_counter} time(s). Check log file for more info')
-      print(f'Will wait for 5 miutes and will try again {failed_counter - 5} more times')
-      time.sleep(300)
-  if json_event not in range(-10,0):
-    failed_counter = 0    # Used to prevent constant running if there are errors
-    func_populateEventIdList(json_event) 
-    new_events = func_compareBothSets()
-    if new_events == -1:    # When set is emptied it will be -1
-      now = datetime.datetime.now().replace(microsecond=0)
-      timeDif = (latest_event_time - now)
-      if timeDif < datetime.timedelta(minutes=1):    # sleep for 1 minute if less than a minute has passed since last event
-        print(f'No new events, will wait for 60 seconds')
-        logging.info(f'No new events, will wait for 60 seconds')
-        time.sleep(60)
-        print(f'60 seconds elapsed, call API again')
-    else:
-      logging.info(f'Calling function to write file')
-      func_getEventWriteFile()    # Saving event to file
-      latest_event_time = datetime.datetime.now().replace(microsecond=0)
-  
+      if json_event != -1:
+        failed_counter = 0    # Used to prevent constant running if there are errors
+        func_populateEventIdList(json_event) 
+        new_events = func_compareBothSets()
+        if new_events == -1:    # When set is emptied it will be -1
+          now = datetime.datetime.now().replace(microsecond=0)
+          timeDif = (latest_event_time - now)
+          if timeDif < datetime.timedelta(minutes=1):    # sleep for 1 minute if less than a minute has passed since last event
+            print(f'No new events, will wait for 60 seconds')
+            logging.info(f'No new events, will wait for 60 seconds')
+            time.sleep(60)
+            print(f'60 seconds elapsed, call API again')
+        else:
+          logging.info(f'Calling function to write file')
+          func_getEventWriteFile()    # Saving event to file
+          latest_event_time = datetime.datetime.now().replace(microsecond=0)
+      if json_event == -1:
+        print(f'Error retrieving proper response from API. Failed {failed_counter} times')
+        failed_counter+=1
+  if enable_API_calls == False:
+        json_event = func_getEventDataFromFile
 
 
 
