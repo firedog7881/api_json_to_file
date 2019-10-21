@@ -305,7 +305,7 @@ pw = getpass.getpass(prompt='Password: ', stream=None)
 # This is to encrypt the password in memory, it is not bulletproof
 # Generate random key, only used for this session. Each subsequent running will require a password to be entered
 crypt_key = Fernet.generate_key()
-# Create an instance of Fernet with the generated key
+# Create an instance of Fernet crypto with the generated key
 f = Fernet(crypt_key)
 # Store the encrypted password in a new variable
 pw_encrypted = f.encrypt(pw.encode())
@@ -331,8 +331,6 @@ save_config_to_file = config_data['save_config_to_file']['setting']
 
 enSilo_API_URL = f'https://{enSilo_URL_customer_name}.console.ensilo.com/management-rest/'
 URL_params = {'organization': enSilo_organization_name}
-
-
 
 json_organizations = func_buildURL('organization')
 list_organizations = func_listOrganizations(json_organizations)
@@ -392,9 +390,9 @@ event_tracking_file_location = './tracking/tracking.txt'
 
 # Logging of CONFIGURATION
 if enable_API_calls:
-  logging.info(f'API Calls have been enabled')
+  logging.info(f'API Calls are enabled')
 else:
-  logging.info(f'API Calls have been disabled')
+  logging.info(f'API Calls are disabled')
 
 if Retrieve_Raw_Data:
   logging.info(f'Retrieving Raw Data files from events')
