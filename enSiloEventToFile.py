@@ -147,7 +147,7 @@ def func_saveEventToFile(requestJSON):
   else:
     if save_json_to_file:    # Config setting how to save the files
       logging.info(f'Preparing JSON to save to file for event ID {this_event_id}')
-      file_save = f'{event_save_file_location}json/enSilo_event_{this_event_id}.json'
+      file_save = f'{event_save_file_location}json/{enSilo_organization_name}-enSilo_event_{this_event_id}.json'
       os.makedirs(os.path.dirname(file_save), exist_ok=True)
       try:
         with open(file_save, 'w+') as jsonfile:
@@ -366,6 +366,8 @@ URL_params = {'organization': enSilo_organization_name}
 
 json_organizations = func_buildURL('organization')    # Get JSON of organizations
 list_organizations = func_listOrganizations(json_organizations)    # Populate list of organization names
+
+# This gets the configuration from the user
 if config_temp['error']['result']:
   logging.info(f'Configuration NOT FOUND, will get config from user')
   print(f'No configuration found, please configure settings')
