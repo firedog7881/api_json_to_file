@@ -1,18 +1,5 @@
 
 """Pull events from the enSilo API and store in a folder with each file as a separate file
- ******************TO DO LIST*******************
- DONE - Add organization name to save log files under organization name
- Figure out how to pull the raw events for each event
- Add conversion to XML and save to file
- Pull organization list, Iterate through organization list and pull logs for each organization
- Ask for specific configurations (un/pw, organization(s), disable api call, retrieve raw data, save to xml, save to json)
- While gettting password need to hash
- error handling throughout
- After asking for ensilo console name - pull list of organizations to choose from
-
- BUG FIXES NEEDED
- error if trying to run XML
-  error if both dates are not available for URL on subsequent calls, tried to run new pull if error, need to verify
 """
 import json
 import requests
@@ -22,6 +9,8 @@ import logging
 import os
 from collections import defaultdict
 import getpass
+from cryptography.fernet import Fernet
+import base64
 
 # ************GLOBAL VARIABLES***************
 # This variable is used to store the eventIDs that have been retrieved from the API on this iteration
@@ -72,7 +61,7 @@ def func_buildURL(request_type):
   if request_type == 'organization':
     request_type_url = 'organizations/list-organizations'
   if enable_API_calls:
-    events_request = requests.get(f'{enSilo_API_URL}{request_type_url}', auth=requests.auth.HTTPBasicAuth(un, pw), verify=False, params=URL_params)
+    events_request = requests.get(f'{enSilo_API_URL}{request_type_url}', auth=requests.auth.HTTPBasicAuth(un, f.decrypt(pw_encrypted)), verify=False, params=URL_params)
     logging.info(f'Request sent for {request_type} to {events_request.url}')
     print(f'Request sent for {request_type} to {events_request.url}')
     if events_request.status_code == 200:
@@ -311,8 +300,22 @@ config_data = {'enSilo_URL_customer_name':{'name':'enSilo Instance Name','type':
 # Create copy of config data to work with
 config_temp = config_data
 
-un = input('Username: ') # 'brandon_api'   # need to retrieve at runtime from user
-pw = getpass.getpass(prompt='Password: ', stream=None)  # 'MasterPassword' # need to retrieve at runtime from user
+un = input('Username (User must have Rest API role within WebGUI): ')
+pw = getpass.getpass(prompt='Password: ', stream=None)
+# This is to encrypt the password in memory, it is not bulletproof
+# Generate random key, only used for this session. Each subsequent running will require a password to be entered
+crypt_key = Fernet.generate_key()
+# Create an instance of Fernet with the generated key
+f = Fernet(crypt_key)
+# Store the encrypted password in a new variable
+pw_encrypted = f.encrypt(pw.encode())
+# remove cleartext password from memory
+del pw
+
+# Get the configuration from the saved file
+config_from_file = func_getConfigurationFromFile(config_file_location)
+config_temp.update(config_from_file)
+
 config_data['enSilo_URL_customer_name']['setting'] = input(config_data['enSilo_URL_customer_name']['question'])
 
 enSilo_URL_customer_name = config_data['enSilo_URL_customer_name']['setting']
@@ -330,9 +333,7 @@ enSilo_API_URL = f'https://{enSilo_URL_customer_name}.console.ensilo.com/managem
 URL_params = {'organization': enSilo_organization_name}
 
 
-# Get the configuration from the saved file
-config_from_file = func_getConfigurationFromFile(config_file_location)
-config_temp.update(config_from_file)
+
 json_organizations = func_buildURL('organization')
 list_organizations = func_listOrganizations(json_organizations)
 if config_temp['error']['result']:
