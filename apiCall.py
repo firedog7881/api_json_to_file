@@ -19,7 +19,7 @@ class APICall:
             logging.info(f'getFromFile called with request_type other than "event"')
             print(f'function expected event request_type, something else was presented')
             return -1
-            
+
 
     def sendRequest(API_URL,request_type):
         global latest_event_time
@@ -41,24 +41,10 @@ class APICall:
             return -1    # Return error code
 
     def func_setURLParams(request_type,eventId=000000,rawEventId=0000000000):
-        global URL_params 
-        if request_type == 'event':
-            URL_params = {'lastSeenFrom':latest_event_time, 'lastSeenTo':current_run_time,'organization':enSilo_organization_name}
-            return True
-        if request_type == 'organization':
-            URL_params = {}
-            return True
-        if request_type == 'raw_event': 
-            if eventId == 000000:
-                return False
-            else:
-                URL_params = {'eventId':eventId,'organization':enSilo_organization_name}
-                return True
-        if request_type == 'raw_event_file':
-            if rawEventId == 0000000000:
-            return False  
-            else:
-            URL_params = {'rawEventId':rawEventId,'organization':enSilo_organization_name}
-            return True
-        if request_type == 'none':
-            return False
+        global URL_params
+        requests_dict = {'event': {'URL_Params': {'lastSeenFrom': latest_event_time, 'lastSeenTo': current_run_time},'return':True},
+                         'organization': {'URL_Params':{},'return':True},
+                         'raw_event': {'URL_Params':{'eventId': eventId, 'organization': enSilo_organization_name},'return':True},
+                         'raw_event_file': {'URL_Params': {'rawEventIds': rawEventId, 'return': True},
+        URL_params = request_dict[request_type][URL_params]
+        return True
