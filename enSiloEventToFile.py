@@ -120,7 +120,8 @@ def func_sendAPIrequest(API_URL,request_type):
 
 def func_listOrganizations(json_org):
   # Store the list of organziations pulled from API for access later
-  org_list = [org['name'] for org in jsaon_org]
+  org_list = [org['name'] for org in json_org]
+  return org_list
 
 # This function is needed when the program restarts it will be able to continue without getting the same events
 # This reads in the list of eventIDs that have been saved to file. During the file creation the eventID will be...
