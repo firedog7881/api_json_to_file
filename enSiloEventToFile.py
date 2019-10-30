@@ -23,7 +23,7 @@ current_eventID_set = set()
 # This set will be exported as a file to provide persistence
 historical_eventID_set = set()
 
-# first_run is to track if this is the first time the script ran. This variable is set by the func_getEventIDsFromFile 
+# first_run is to track if this is the first time the script ran. This variable is set by the func_getEventIDsFromFile
 # based on whether or not if found the file from existing events. If file is found it changes to false, no file found it sets to True
 first_run = True
 
@@ -46,18 +46,18 @@ URL_params = {}
 # ***************FUNCTIONS****************
 # input is type - event or organization list or raw event (to be added)
 # This function is used to build out the URL that will be making the API call
-# 
+#
 def func_buildURL(request_type):
   enSilo_API_URL = f'https://{enSilo_URL_customer_name}.console.ensilo.com/management-rest/'
-  if request_type == 'event':  
+  if request_type == 'event':
     request_type_url = 'events/list-events'    # indicate this API call is for events
-  
+
   if request_type == 'organization':
     request_type_url = 'organizations/list-organizations'    # indicate this API call is for organizations
-  
+
   if request_type == 'raw_event':
     request_type_url = 'events/list-raw-data-items'    # indicate this API call is for raw event Ids
-  
+
   if request_type == 'raw_event_file':
     request_type_url = 'forensics/get-event-file'
 
@@ -65,14 +65,14 @@ def func_buildURL(request_type):
   return enSilo_API_URL_full
 
 def func_setURLParams(request_type,eventId=000000,rawEventId=0000000000):
-  global URL_params 
+  global URL_params
   if request_type == 'event':
     URL_params = {'lastSeenFrom':latest_event_time, 'lastSeenTo':current_run_time,'organization':enSilo_organization_name}
     return True
   if request_type == 'organization':
     URL_params = {}
     return True
-  if request_type == 'raw_event': 
+  if request_type == 'raw_event':
       if eventId == 000000:
         return False
       else:
@@ -80,7 +80,7 @@ def func_setURLParams(request_type,eventId=000000,rawEventId=0000000000):
         return True
   if request_type == 'raw_event_file':
     if rawEventId == 0000000000:
-      return False  
+      return False
     else:
       URL_params = {'rawEventId':rawEventId,'organization':enSilo_organization_name}
       return True
@@ -120,10 +120,7 @@ def func_sendAPIrequest(API_URL,request_type):
 
 def func_listOrganizations(json_org):
   # Store the list of organziations pulled from API for access later
-  org_list = []
-  for org in json_org:
-    org_list.append(org['name'])
-  return org_list
+  org_list = [org['name'] for org in jsaon_org]
 
 # This function is needed when the program restarts it will be able to continue without getting the same events
 # This reads in the list of eventIDs that have been saved to file. During the file creation the eventID will be...
@@ -145,7 +142,7 @@ def func_getEventIDsFromFile():
         historical_eventID_set.add(eventID)
         counter+=1
       logging.info(f'Successfully imported {counter} events')
-    first_run = False   
+    first_run = False
   except FileNotFoundError:
     logging.info('Import File not found. Continuing as first time run')
     first_run = True
@@ -159,7 +156,7 @@ def func_getRawEventFile(list_of_processed_events):
     raw_event_JSON = raw_event_request.json()
     if raw_event_request.status_code == 200:
       logging.info(f'Request for raw event {event} successful')
-      try:  
+      try:
         for each in raw_event_JSON:
           rawEventId = each['rawEventId']
           rawFileEventURL = func_buildURL('raw_event_file')
@@ -288,7 +285,7 @@ def func_askUserForConfiguration():
     config_temp['error']['result'] = False
     func_printConfig(config_temp)    # Display the config for the user to confirm
     satisfied = func_getBoolAnswerFromUser(f'Are you satisfied with your configuration? (y/n)')
-    
+
 # This is used to print out the list of organizations pulled from the API call
 # The user will use this list to choose which organization to pull data from
 def func_printConfig(config_dict):
@@ -302,7 +299,7 @@ def func_printConfig(config_dict):
         output = f'{key}: {output_string}'
         print(output)
 
-# Save config data into runtime variable for access    
+# Save config data into runtime variable for access
 def func_populateConfigData(config_dict):
   for key in config_dict:
     if key not in ('error',):
@@ -323,7 +320,7 @@ def func_printOrgsGetResponse(list_organizations):
         result = list_organizations[val]
         return result
     except ValueError:
-      print(f'Please input a number.')  
+      print(f'Please input a number.')
 
 def func_getEventsFromAPI(): # enable logic for first run outside of function
   processed_events = []
@@ -333,7 +330,7 @@ def func_getEventsFromAPI(): # enable logic for first run outside of function
   if json_event_url not in range(-10,0):
     json_event = func_sendAPIrequest(json_event_url,'event')
     if json_event != -1:
-      func_populateEventIdList(json_event) 
+      func_populateEventIdList(json_event)
       new_events = func_compareBothSets()
       if new_events != -1:
         while len(new_events) > 0:    # Since we're popping events the list will dwindle to 0 eventually
@@ -421,7 +418,7 @@ save_xml_to_file = config_data['save_xml_to_file']['setting']
 convert_for_fortisiem = config_data['convert_for_fortisiem']['setting']
 retrieve_from_all_organizations = config_data['retrieve_from_all_organizations']['setting']
 separate_per_organization = config_data['separate_per_organization']['setting']
-save_config_to_file = config_data['save_config_to_file']['setting']  
+save_config_to_file = config_data['save_config_to_file']['setting']
 
 # Base API URL used to access enSilo API endpoints
 
@@ -436,7 +433,7 @@ if config_temp['error']['result']:
   func_askUserForConfiguration()
   func_populateConfigData(config_temp)
   use_existing_config = False
-else:  
+else:
   func_printConfig(config_temp)
   user_input_view_config = input(f'Would you like to use this existing configuration? (y/n): ')
   if user_input_view_config in ('y','Y'):
@@ -461,7 +458,7 @@ else:
       func_populateConfigData(config_temp)
       print(f'Configuration loaded, moving on')
       use_existing_config = True
-          
+
   if user_input_view_config in ('n','N'):
     func_askUserForConfiguration()
     func_populateConfigData(config_temp)
@@ -475,7 +472,7 @@ if not use_existing_config:
         logging.info(f'Config file saved at {config_file_location}')
     except IOError:
       print(f'IOError saving configuration file - CONFIGURATION NOT SAVED')
-      logging.info(f'Configuration File NOT SAVED') 
+      logging.info(f'Configuration File NOT SAVED')
 
 if separate_per_organization:    # Used if set in config
   event_save_file_location = f'./events/{enSilo_organization_name.replace(" ", "")}/'
