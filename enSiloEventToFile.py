@@ -12,6 +12,57 @@ import getpass
 from cryptography.fernet import Fernet
 import base64
 import re
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+class APICall:
+    def __init__(self, request_type='none', eventId=0, organization='none'):
+      self.request_type = request_type
+      self.eventId = eventId
+      self.organization = organization
+      self.requests_dict = dict()
+      self.requests_dict.setdefault('event',{}).setdefault('URL_Params',{'lastSeenFrom': latest_event_time, 'lastSeenTo': current_run_time})
+      self.requests_dict['event'].update({'URLmod': 'events/list-events'})
+      self.requests_dict.setdefault('organization',{}).setdefault('URL_Params',{})
+      self.requests_dict['organization'].update({'URLmod': 'organizations/list-organizations'})
+      self.requests_dict.setdefault('raw_event',{}).setdefault('URL_Params',{'eventId':eventId,'fullDataRequested':True})
+      self.requests_dict['raw_event'].update({'URLmod': 'events/list-raw-data-items'})
+      self.URLParams = self.requests_dict[request_type]['URL_Params']
+      self.URLMod = self.requests_dict[self.request_type]['URLmod']
+      self.API_URL = f'https://{enSilo_URL_customer_name}.console.ensilo.com/management-rest/{self.URLMod}'
+      self.eventJSON = self._sendRequest()
+
+    def _sendRequest(self):
+        global latest_event_time
+        api_request = requests.get(self.API_URL, auth=requests.auth.HTTPBasicAuth(un, f.decrypt(pw_encrypted)), verify=False, params=self.URLParams)
+        logging.info(f'Request sent to {api_request.url}')
+        print(f'Request sent to {api_request.url}')
+        if api_request.status_code == 200:
+            logging.info(f'Request successful - status code 200 received')
+            returnJSON = api_request.json()
+            return returnJSON
+
+        else:
+            error = f'Error in response while trying to retrieve. HTML Code {api_request.status_code} received'
+            logging.info(error)
+            print(error)
+            return -1
+
+class Event:
+  def __init__(self,event_JSON):
+    self.event_JSON = event_JSON
+    self.eventId = event_JSON['eventId']
+    self.firstSeen = event_JSON['firstSeen']
+    self.lastSeen = event_JSON['lastSeen']
+    self.rawEvents = ()
+    if retrieve_raw_data:
+      self.rawEvents = self._getRawEvents()
+
+  def _getRawEvents(self):
+    api_call = APICall(request_type='raw_event', eventId=self.eventId)
+    return api_call.eventJSON
+
+
 
 # ************GLOBAL VARIABLES***************
 # This variable is used to store the eventIDs that have been retrieved from the API on this iteration
@@ -40,83 +91,11 @@ new_events = set()
 # track if there are new events left to process
 new_events_remaining = False
 
-# Need to store any parameters for the URL API call
-URL_params = {}
 
 # ***************FUNCTIONS****************
 # input is type - event or organization list or raw event (to be added)
 # This function is used to build out the URL that will be making the API call
 #
-def func_buildURL(request_type):
-  enSilo_API_URL = f'https://{enSilo_URL_customer_name}.console.ensilo.com/management-rest/'
-  if request_type == 'event':
-    request_type_url = 'events/list-events'    # indicate this API call is for events
-
-  if request_type == 'organization':
-    request_type_url = 'organizations/list-organizations'    # indicate this API call is for organizations
-
-  if request_type == 'raw_event':
-    request_type_url = 'events/list-raw-data-items'    # indicate this API call is for raw event Ids
-
-  if request_type == 'raw_event_file':
-    request_type_url = 'forensics/get-event-file'
-
-  enSilo_API_URL_full = f'{enSilo_API_URL}{request_type_url}'
-  return enSilo_API_URL_full
-
-def func_setURLParams(request_type,eventId=000000,rawEventId=0000000000):
-  global URL_params
-  if request_type == 'event':
-    URL_params = {'lastSeenFrom':latest_event_time, 'lastSeenTo':current_run_time,'organization':enSilo_organization_name}
-    return True
-  if request_type == 'organization':
-    URL_params = {}
-    return True
-  if request_type == 'raw_event':
-      if eventId == 000000:
-        return False
-      else:
-        URL_params = {'eventId':eventId,'organization':enSilo_organization_name}
-        return True
-  if request_type == 'raw_event_file':
-    if rawEventId == 0000000000:
-      return False
-    else:
-      URL_params = {'rawEventId':rawEventId,'organization':enSilo_organization_name}
-      return True
-  if request_type == 'none':
-    return False
-
-def func_getEventDataFromFile():
-  try:
-    with open('./demo_data.json','r') as file_data:
-      requestJSON = json.load(file_data)
-  except IOError:
-    print(f'Cannot load data from file, exiting')
-    print(f'{IOError}')
-    print(f'Have a nice day! Sorry.')
-    exit()
-  return  requestJSON
-
-
-def func_sendAPIrequest(API_URL,request_type):
-  global latest_event_time
-  URLParamsResult = func_setURLParams(request_type)
-  # this is the main point of the URL request, the URL is built out based on the parameters of the call
-  if URLParamsResult:
-    api_request = requests.get(f'{API_URL}', auth=requests.auth.HTTPBasicAuth(un, f.decrypt(pw_encrypted)), verify=False, params=URL_params)
-    logging.info(f'Request sent to {api_request.url}')
-    print(f'Request sent to {api_request.url}')
-    if api_request.status_code == 200:    # 200 code is success
-      logging.info(f'Request successful - status code 200 received')
-      requestJSON = api_request.json()    # Store JSON response into JSON object
-      return  requestJSON
-    else:
-      # If a response other than 200 is returned then the call was unsuccessful
-      error = f'Error in response while trying to retrieve. HTML Code {api_request.status_code} received'
-      logging.info(error)
-      print(error)
-      return -1    # Return error code
 
 def func_listOrganizations(json_org):
   # Store the list of organziations pulled from API for access later
@@ -147,74 +126,6 @@ def func_getEventIDsFromFile():
   except FileNotFoundError:
     logging.info('Import File not found. Continuing as first time run')
     first_run = True
-
-def func_getRawEventFile(list_of_processed_events):
-  # This function is not being used until we can find out how to get the event json detail
-  for event in list_of_processed_events:
-    rawEventURL = func_buildURL('raw_event')
-    URL_params = {'organization':enSilo_organization_name,'eventId':event}
-    raw_event_request = requests.get(rawEventURL, auth=requests.auth.HTTPBasicAuth(un, f.decrypt(pw_encrypted)), verify=False, params=URL_params)
-    raw_event_JSON = raw_event_request.json()
-    if raw_event_request.status_code == 200:
-      logging.info(f'Request for raw event {event} successful')
-      try:
-        for each in raw_event_JSON:
-          rawEventId = each['rawEventId']
-          rawFileEventURL = func_buildURL('raw_event_file')
-          URL_params = {'organization':enSilo_organization_name,'rawEventId':rawEventId}
-          raw_file_request = requests.get(rawFileEventURL, auth=requests.auth.HTTPBasicAuth(un, f.decrypt(pw_encrypted)), verify=False, params=URL_params)
-          raw_file_JSON = raw_file_request.json()
-          if raw_file_request.status_code == 200:
-            logging.info(f'Request for raw file event {rawEventId} successful')
-            event_time = event['lastSeen']
-            raw_file_save_location = f'{event_save_file_location}json/{enSilo_organization_name.replace(" ", "")}-eventid-{event}_raw-eventid-{rawEventId}_{event_time}.json'
-            os.makedirs(os.path.dirname(event_save_file_location), exist_ok=True)
-            try:
-              open(raw_file_save_location,'w+').write(raw_file_JSON)
-              logging.info(f'Saved raw event file for {rawEventId}')
-              print(f'Saved raw event file for {rawEventId}')
-            except IOError:
-              logging.info(f'ERROR saving raw file')
-          else:
-            logging.info(f'ERROR Retrieving raw event file for {rawEventId}')
-            print(f'ERROR Retrieving raw event file for {rawEventId}')
-      except:
-        logging.info(f'No raw events for event {event}')
-    else:
-      logging.info(f'ERROR Retrieving raw event for {event}')
-      print(f'ERROR Retrieving raw event for {event}')
-  return True
-
-# This function is to save the eventData into a file
-# The eventID will be saved in the variable to keep which events have been pulled
-def func_saveEventToFile(requestJSON):
-  this_event_id = requestJSON['eventId']
-  if this_event_id in historical_eventID_set:
-    logging.info(f'Event {this_event_id} is in historical set and will be skipped, need to verify log created')
-    # need to add a verification of the log file and if the log file is missing then go through and creaete it
-    # new event set = check
-    return
-  else:
-    if save_json_to_file:    # Config setting how to save the files
-      logging.info(f'Preparing JSON to save to file for event ID {this_event_id}')
-      file_save = f'{event_save_file_location}json/{enSilo_organization_name.replace(" ", "")}-enSilo_event_{this_event_id}.json'
-      os.makedirs(os.path.dirname(file_save), exist_ok=True)
-      try:
-        with open(file_save, 'w+') as jsonfile:
-          json.dump(requestJSON, jsonfile)
-          logging.info(f'JSON for {this_event_id} saved to {file_save}')
-      except IOError:
-        logging.info(f'Error writing EventID {this_event_id} file to disk at location {file_save}')
-    if save_xml_to_file:    # Config settting how to save the files (TO BE IMPLEMENTED)
-      print(f'XML NOT IMPLEMENTED')
-      logging.info(f'XML NOT IMPLEMENTED')
-      return
-    historical_eventID_set.add(this_event_id)    # track which IDs have been saved
-    try:
-      with open(event_tracking_file_location, 'a+') as jsonfile:
-        jsonfile.write(f'{this_event_id}\n')
-    except IOError:
-      logging.info(f'Error writing EventID to tracking file location {this_event_id}')
 
 
 # This returns the difference between the two sets.
@@ -308,6 +219,30 @@ def func_populateConfigData(config_dict):
       config_data[key]['setting'] = setting_string
   logging.info(f'Saved configuration imported into runtime')
 
+def func_saveJSONtoFile(meta_json):
+  logging.info(f'Preparing JSON to save to file for event ID {meta_json.eventId}')
+  file_save = f'{event_save_file_location}json/{enSilo_organization_name.replace(" ", "")}-enSilo_event_{meta_json.eventId}.json'
+  os.makedirs(os.path.dirname(file_save), exist_ok=True)
+  data = meta_json.event_JSON
+  try:
+    with open(file_save, 'w+') as the_file:
+      json.dump(data, the_file)
+      logging.info(f'JSON for {meta_json.eventId} saved to {file_save}')
+  except IOError:
+    logging.info(f'Error writing EventID {meta_json.eventId} file to disk at location {file_save}')
+  if retrieve_raw_data:
+    for event in meta_json.rawEvents:
+      rawId = event['EventId']  #for the raw events they use capital E instead of lowercase as is everywhere else
+      raw_file_save = f'{event_save_file_location}json/{enSilo_organization_name.replace(" ", "")}-enSilo_event_{meta_json.eventId}-rawID-{rawId}.json'
+      os.makedirs(os.path.dirname(raw_file_save), exist_ok=True)
+      try:
+        with open(raw_file_save, 'w+') as raw_file:
+          json.dump(event, raw_file)
+          logging.info(f'JSON for {rawId} saved to {file_save}')
+      except IOError:
+        logging.info(f'Error writing raw EventID {rawId} file to disk at location {raw_file_save}')
+
+
 # Print out the organizations for the user to choose which org to pull logs from
 # Need to add the ability to choose ALL more elagantly than saying no to choosing
 def func_printOrgsGetResponse(list_organizations):
@@ -323,35 +258,26 @@ def func_printOrgsGetResponse(list_organizations):
     except ValueError:
       print(f'Please input a number.')
 
-def func_getEventsFromAPI(): # enable logic for first run outside of function
+def func_getEvents(): # enable logic for first run outside of function
+  Events = APICall(request_type='event', organization=enSilo_organization_name)
+  eventsJSON = Events.eventJSON
+  eventsDict = {}
+  for each in eventsJSON:
+    eventsDict.update({each['eventId']:Event(each)})
   processed_events = []
-  json_event_url = func_buildURL('event')    # Get the event data from API
-  if json_event_url in range(-10,0):
-    return False
-  if json_event_url not in range(-10,0):
-    json_event = func_sendAPIrequest(json_event_url,'event')
-    if json_event != -1:
-      func_populateEventIdList(json_event)
-      new_events = func_compareBothSets()
-      if new_events != -1:
-        while len(new_events) > 0:    # Since we're popping events the list will dwindle to 0 eventually
-          try:
-            magic_eventId = new_events.pop() # This randomly pops and returns a value from the set, we'll use this to pull from the API data
-            processed_events.append(magic_eventId)
-            logging.info(f'Popping event ID {magic_eventId}')
-          except KeyError:
-            logging.info(f'Error in new_events Set - Set is Empty')
-            return processed_events
-          for event in json_event:
-            # This seems overly computation to keep iterating over the data for each event Id
-            # Right now it is scanning through the JSON data too many times
-            if event['eventId'] == magic_eventId:    # for each event in the list match with the popped ID
-              logging.info(f'Event ID {magic_eventId} was found, saving to file')
-              func_saveEventToFile(event)    # call function to save the file passing the JSON object
-      if new_events == -1:
-        return False
-    if json_event == -1:
-      return False
+  func_populateEventIdList(Events.eventJSON)
+  new_events = func_compareBothSets()
+  if new_events != -1:
+    while len(new_events) > 0:    # Since we're popping events the list will dwindle to 0 eventually
+      try:
+        magic_eventId = new_events.pop() # This randomly pops and returns a value from the set, we'll use this to pull from the API data
+        logging.info(f'Popping event ID {magic_eventId}')
+      except KeyError:
+        logging.info(f'Error in new_events Set - Set is Empty')
+        return processed_events
+      logging.info(f'Event ID {magic_eventId} was found, saving to file')
+      func_saveJSONtoFile(eventsDict[magic_eventId])
+      processed_events.append(magic_eventId)
   return processed_events
 
 # ********END OF FUNCTIONS********
@@ -365,7 +291,7 @@ os.makedirs(os.path.dirname(config_file_location), exist_ok=True)
 
 with open(logs_location,'a+') as outfile:
   current_run_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-  outfile.write(f'{current_run_time} STARTING SCRIPT - Retrieve enSilo events and save to JSON and XML\n')
+  outfile.write(f'{current_run_time} STARTING SCRIPT - Retrieve enSilo events and save to JSON\n')
 logging.basicConfig(filename=logs_location, level=logging.INFO, format='%(asctime)s %(message)s', datefmt='%Y %m %d %H:%M:%S')
 
 # ********END OF LOGGING**********
@@ -376,11 +302,7 @@ logging.basicConfig(filename=logs_location, level=logging.INFO, format='%(asctim
 # Initialize the dictionary for configuration settings
 config_data = {'enSilo_URL_customer_name':{'name':'enSilo Instance Name','type':'text','setting':'','question':f'enSilo console name (https://THIS.console.ensilo.com): '},
     'enSilo_organization_name':{'name':'Organization Name','type':'text','setting':'','question':f'What is the name of the organization to pull events from - name must be exact: '},
-    'enable_API_calls':{'name':'Enable API Calls','type':'bool','setting':True,'question':f'Do you want to enable API calls (This can be disabled for testing)? (y/n): '},
     'Retrieve_Raw_Data':{'name':'Retrieve Raw Data files','type':'bool','setting':False,'question':f'Do you want to retrieve the raw data files for events? (y/n): '},
-    'save_json_to_file':{'name':'Save file in JSON format','type':'bool','setting':True,'question':f'Do you want to save events in JSON format? (y/n): '},
-    'save_xml_to_file':{'name':'Savefile in XML format (currently not supported)','type':'bool','setting':False,'question':f'Do you want to save events in XML format? (y/n): '},
-    'convert_for_fortisiem':{'name':'Format XML for FortiSIEM (currently not supported)','type':'bool','setting':False,'question':f'Do you want to convert XML data for FortiSIEM? (y/n): '},
     'retrieve_from_all_organizations':{'name':'Retrive events from ALL organizations','type':'bool','setting':False,'question':f'Do you want to retrieve events from all organizations? (y/n): '},
     'separate_per_organization':{'name':'Separate events into folders','type':'bool','setting':False,'question':f'Do you want to separate events from different organizations into folders? (y/n): '},
     'save_config_to_file':{'name':'Save this config to a file','type':'bool','setting':True,'question':f'Do you want to save this configuration for next time? (y/n): '},
@@ -412,20 +334,15 @@ config_data['enSilo_URL_customer_name']['setting'] = input(config_data['enSilo_U
 # Populate config variables based on runtime set of config_data
 enSilo_URL_customer_name = config_data['enSilo_URL_customer_name']['setting']
 enSilo_organization_name = config_data['enSilo_organization_name']['setting']
-enable_API_calls = config_data['enable_API_calls']['setting']
-Retrieve_Raw_Data = config_data['Retrieve_Raw_Data']['setting']
-save_json_to_file = config_data['save_json_to_file']['setting']
-save_xml_to_file = config_data['save_xml_to_file']['setting']
-convert_for_fortisiem = config_data['convert_for_fortisiem']['setting']
+retrieve_raw_data = config_data['Retrieve_Raw_Data']['setting']
 retrieve_from_all_organizations = config_data['retrieve_from_all_organizations']['setting']
 separate_per_organization = config_data['separate_per_organization']['setting']
 save_config_to_file = config_data['save_config_to_file']['setting']
 
 # Base API URL used to access enSilo API endpoints
 
-json_organizations_url = func_buildURL('organization')    # Get JSON of organizations
-json_organizations = func_sendAPIrequest(json_organizations_url,'organization')
-list_organizations = func_listOrganizations(json_organizations)    # Populate list of organization names
+organizations_json = APICall(request_type='organization').eventJSON
+list_organizations = func_listOrganizations(organizations_json)    # Populate list of organization names
 
 # This gets the configuration from the user
 if config_temp['error']['result']:
@@ -481,51 +398,24 @@ else:
   event_save_file_location = './events/'
 
 event_tracking_file_location = './tracking/tracking.txt'
-
-# Logging of CONFIGURATION
-if enable_API_calls:
-  logging.info(f'API Calls are enabled')
-else:
-  logging.info(f'API Calls are disabled')
-
-if Retrieve_Raw_Data:
-  logging.info(f'Retrieving Raw Data files from events')
-else:
-  logging.info(f'Not retrieving Raw Data for events')
-
-logging.info(f'Events being saved in {event_save_file_location}')
-logging.info(f'Event Tracking log file is being stored at {event_tracking_file_location}')
-# ********END OF CONFIGURATION******
-
-# Create directories for logging and tracking
 os.makedirs(os.path.dirname(event_tracking_file_location), exist_ok=True)
 os.makedirs(os.path.dirname(event_save_file_location), exist_ok=True)
+# ********END OF CONFIGURATION******
 
 
 # Pull in historical EventIds if historical set is empty
 # If set is empty and there is no file it will continue
+# Need a better way to track all of this
 if not historical_eventID_set:
   func_getEventIDsFromFile()
 
 while failed_counter < 6:
-  if enable_API_calls:
-    try:
-      list_of_processed_events = func_getEventsFromAPI()
-    except:
-      print(f'There was an error getting events')
-      logging.info(f'There was an error getting events')
-      failed_counter += 1
-#    if list_of_processed_events != False:
-#      if Retrieve_Raw_Data:
-#        try:
-#          func_getRawEventFile(list_of_processed_events)
-#        except:
-#          print(f'There was an error getting raw event files')
-#          logging.info(f'There was an error getting raw event files')
-#          failed_counter += 1
-  if enable_API_calls == False:
-    print('API Calls disabled, getting data from file for testing, most features will not work')
-    json_event = func_getEventDataFromFile
+  try:
+    list_of_processed_events = func_getEvents()
+  except:
+    print(f'There was an error getting events')
+    logging.info(f'There was an error getting events')
+    failed_counter += 1
   print(f'Completed processing, waiting 60 seconds')
   logging.info(f'Completed process, waiting 60 seconds')
   time.sleep(60)
