@@ -321,7 +321,6 @@ logging.basicConfig(filename=logs_location, level=logging.INFO, format='%(asctim
 
 # ********END OF LOGGING**********
 
-
 # *********CONFIGURATION**********
 def func_setDefaultConfig(config):
   config['organization'] = {'name': 'Organization Name',
