@@ -1,6 +1,8 @@
 
 """Pull events from the enSilo API and store in a folder with each file as a separate file
 """
+from os.path import isfile
+import configparser
 import json
 import requests
 import time
@@ -29,12 +31,13 @@ class APICall:
       self.requests_dict['raw_event'].update({'URLmod': 'events/list-raw-data-items'})
       self.URLParams = self.requests_dict[request_type]['URL_Params']
       self.URLMod = self.requests_dict[self.request_type]['URLmod']
-      self.API_URL = f'https://{enSilo_URL_customer_name}.console.ensilo.com/management-rest/{self.URLMod}'
+      customer_name = config.get('customer_name', 'setting')
+      self.API_URL = f'https://{customer_name}.console.ensilo.com/management-rest/{self.URLMod}'
       self.eventJSON = self._sendRequest()
 
     def _sendRequest(self):
         global latest_event_time
-        api_request = requests.get(self.API_URL, auth=requests.auth.HTTPBasicAuth(un, f.decrypt(pw_encrypted)), verify=False, params=self.URLParams)
+        api_request = requests.get(self.API_URL, auth=requests.auth.HTTPBasicAuth(creds.un, creds.decrypt_pw()), verify=False, params=self.URLParams)
         logging.info(f'Request sent to {api_request.url}')
         print(f'Request sent to {api_request.url}')
         if api_request.status_code == 200:
@@ -55,14 +58,30 @@ class Event:
     self.firstSeen = event_JSON['firstSeen']
     self.lastSeen = event_JSON['lastSeen']
     self.rawEvents = ()
-    if retrieve_raw_data:
+    if config.getboolean('retrieve_raw_items', 'setting'):
       self.rawEvents = self._getRawEvents()
 
   def _getRawEvents(self):
     api_call = APICall(request_type='raw_event', eventId=self.eventId)
     return api_call.eventJSON
 
+class Credentials:
+  def __init__(self):
+    self.crypt_key = Fernet.generate_key()
+    self.f = Fernet(self.crypt_key)
+    self.un = input('Username (User must have Rest API role within WebGUI): ')
+    self.pw = self.encrypt_pw()
 
+  def encrypt_pw(self):
+    pw = getpass.getpass(prompt='Password: ')
+    pw_encrypted = self.f.encrypt(pw.encode())
+    return pw_encrypted
+
+  def decrypt_pw(self):
+    return self.f.decrypt(self.pw)
+
+
+#  call the settings by setting the Configuration Class
 
 # ************GLOBAL VARIABLES***************
 # This variable is used to store the eventIDs that have been retrieved from the API on this iteration
@@ -169,9 +188,9 @@ def func_getBoolAnswerFromUser(console_question):
   while True:
     question = input(console_question)
     if question in ('Y','y'):
-      return True
+      return 'true'
     if question in ('N','n'):
-      return False
+      return 'false'
     else:
       print(f'You must choose y or n. Please respond again')
 
@@ -179,49 +198,54 @@ def func_getBoolAnswerFromUser(console_question):
 def func_askUserForConfiguration():
   satisfied = False    # Creates a loop to allow user to re-enter config if needed
   while not satisfied:
-    for key in config_data:
-      if key not in ('error','enSilo_URL_customer_name'):    # Don't want to display these
-        user_question = config_data[key]['question']
-        if config_data[key]['type'] == 'bool':    # Does this question require a bool answer
+    config.set('customer_name', 'setting', input(config.get('customer_name', 'question')))
+    print(f'Here is a list of your organizations to choose from:')
+    organizations_json = APICall(request_type='organization').eventJSON
+    list_organizations = func_listOrganizations(organizations_json)
+    chosen_org = func_printOrgsGetResponse(list_organizations)
+    config.set('organization','setting',chosen_org)
+    for section in config.sections():
+      if section not in ('customer_name','organization'):
+        user_question = config.get(section,'question')
+        if config.get(section,'setType') == 'bool':    # Does this question require a bool answer
           user_response = func_getBoolAnswerFromUser(user_question)
-        if config_data[key]['type'] == 'text':    # Does this question require a text answer
-          if key == 'enSilo_organization_name':    # If the question is for organizations then ask additional question
-            org_response = func_getBoolAnswerFromUser('Would like like see a list of organizations? (y/n)')
-            if org_response:
-              user_response = func_printOrgsGetResponse(list_organizations)
-            else:
-              user_response = input(user_question)
-          else:
-            user_response = input(user_question)
-        config_temp[key]['setting'] = user_response
-    config_temp['error']['result'] = False
-    func_printConfig(config_temp)    # Display the config for the user to confirm
-    satisfied = func_getBoolAnswerFromUser(f'Are you satisfied with your configuration? (y/n)')
+        if config.get(section,'setType') == 'text':    # Does this question require a text answer
+          user_response = input(user_question)
+        config.set(section,'setting',user_response)
+    config_loaded = func_printConfig(config)    # Display the config for the user to confirm
+    if config_loaded:
+      satisfied = func_getBoolAnswerFromUser(f'Are you satisfied with your configuration? (y/n)')
+    else:
+      pass
 
 # This is used to print out the list of organizations pulled from the API call
 # The user will use this list to choose which organization to pull data from
-def func_printConfig(config_dict):
-  if config_dict['error']['result']:    # Check for error when getting config
-    print(f'Error in retrieving config data from file')
+def func_printConfig(configparser):
+  if config.get('customer_name','setting') == 'none':
+    print('Default config loaded, please answer configuration questions')
+    return False
   else:
-    print(f'Here is your existing configuration')
-    for key in config_dict:
-      if key not in ('save_config_to_file','error'):    # Do not display for these config settings
-        output_string = config_dict[key]['setting']
-        output = f'{key}: {output_string}'
-        print(output)
-
-# Save config data into runtime variable for access
-def func_populateConfigData(config_dict):
-  for key in config_dict:
-    if key not in ('error',):
-      setting_string = config_dict[key]['setting']
-      config_data[key]['setting'] = setting_string
-  logging.info(f'Saved configuration imported into runtime')
+    org_name = config.get('organization', 'name')
+    org_set = config.get('organization', 'setting')
+    raw_name = config.get('retrieve_raw_items', 'name')
+    raw_set = config.get('retrieve_raw_items', 'setting')
+    all_name = config.get('retrieve_from_all','name')
+    all_set = config.get('retrieve_from_all', 'setting')
+    separate_name = config.get('separate_orgs', 'name')
+    separate_set = config.get('separate_orgs','setting')
+    cust_name = config.get('customer_name', 'name')
+    cust_set = config.get('customer_name', 'setting')
+    print(f'{org_name}: {org_set}')
+    print(f'{raw_name}: {raw_set}')
+    print(f'{all_name}: {all_set}')
+    print(f'{separate_name}: {separate_set}')
+    print(f'{cust_name}: {cust_set}')
+    return True
 
 def func_saveJSONtoFile(meta_json):
   logging.info(f'Preparing JSON to save to file for event ID {meta_json.eventId}')
-  file_save = f'{event_save_file_location}json/{enSilo_organization_name.replace(" ", "")}-enSilo_event_{meta_json.eventId}.json'
+  org_set = config.get('organization', 'setting')
+  file_save=f'{event_save_file_location}json/{org_set.replace(" ", "")}-enSilo_event_{meta_json.eventId}.json'
   os.makedirs(os.path.dirname(file_save), exist_ok=True)
   data = meta_json.event_JSON
   try:
@@ -230,10 +254,11 @@ def func_saveJSONtoFile(meta_json):
       logging.info(f'JSON for {meta_json.eventId} saved to {file_save}')
   except IOError:
     logging.info(f'Error writing EventID {meta_json.eventId} file to disk at location {file_save}')
-  if retrieve_raw_data:
+  if config.getboolean('retrieve_raw_items','setting'):
     for event in meta_json.rawEvents:
       rawId = event['EventId']  #for the raw events they use capital E instead of lowercase as is everywhere else
-      raw_file_save = f'{event_save_file_location}json/{enSilo_organization_name.replace(" ", "")}-enSilo_event_{meta_json.eventId}-rawID-{rawId}.json'
+      org_set = config.get('organization', 'setting')
+      raw_file_save=f'{event_save_file_location}json/{org_set.replace(" ", "")}-enSilo_event_{meta_json.eventId}-rawID-{rawId}.json'
       os.makedirs(os.path.dirname(raw_file_save), exist_ok=True)
       try:
         with open(raw_file_save, 'w+') as raw_file:
@@ -259,7 +284,7 @@ def func_printOrgsGetResponse(list_organizations):
       print(f'Please input a number.')
 
 def func_getEvents(): # enable logic for first run outside of function
-  Events = APICall(request_type='event', organization=enSilo_organization_name)
+  Events = APICall(request_type='event', organization=config.get('organization','setting'))
   eventsJSON = Events.eventJSON
   eventsDict = {}
   for each in eventsJSON:
@@ -286,7 +311,7 @@ def func_getEvents(): # enable logic for first run outside of function
 logs_location = './log/ensilo_API_event_to_file.log'
 os.makedirs(os.path.dirname(logs_location), exist_ok=True)
 
-config_file_location = './config/ensilo_event.config'
+config_file_location = './config/ensilo_event.ini'
 os.makedirs(os.path.dirname(config_file_location), exist_ok=True)
 
 with open(logs_location,'a+') as outfile:
@@ -298,108 +323,66 @@ logging.basicConfig(filename=logs_location, level=logging.INFO, format='%(asctim
 
 
 # *********CONFIGURATION**********
+def func_setDefaultConfig(config):
+  config['organization'] = {'name': 'Organization Name',
+                     'setType': 'text',
+                     'setting': 'none',
+                     'question': 'What is the name of the organization to pull events from - name must be exact: '}
 
-# Initialize the dictionary for configuration settings
-config_data = {'enSilo_URL_customer_name':{'name':'enSilo Instance Name','type':'text','setting':'','question':f'enSilo console name (https://THIS.console.ensilo.com): '},
-    'enSilo_organization_name':{'name':'Organization Name','type':'text','setting':'','question':f'What is the name of the organization to pull events from - name must be exact: '},
-    'Retrieve_Raw_Data':{'name':'Retrieve Raw Data files','type':'bool','setting':False,'question':f'Do you want to retrieve the raw data files for events? (y/n): '},
-    'retrieve_from_all_organizations':{'name':'Retrive events from ALL organizations','type':'bool','setting':False,'question':f'Do you want to retrieve events from all organizations? (y/n): '},
-    'separate_per_organization':{'name':'Separate events into folders','type':'bool','setting':False,'question':f'Do you want to separate events from different organizations into folders? (y/n): '},
-    'save_config_to_file':{'name':'Save this config to a file','type':'bool','setting':True,'question':f'Do you want to save this configuration for next time? (y/n): '},
-    'error':{'result':False,'code':''},
-    }
-# Create copy of config data to work with before
-config_temp = config_data
+  config['retrieve_raw_items'] = {'name': 'Retrieve Raw Data Files',
+                      'setType': 'bool',
+                      'setting': 'false',
+                      'question': 'Do you want to retrieve the raw data files for events? (y/n): '}
 
-# Get username and password from user
-un = input('Username (User must have Rest API role within WebGUI): ')
-pw = getpass.getpass(prompt='Password: ', stream=None)
-# This is to encrypt the password in memory, it is not bulletproof
-# Generate random key, only used for this session. Each subsequent running will require a password to be entered
-crypt_key = Fernet.generate_key()
-# Create an instance of Fernet crypto with the generated key
-f = Fernet(crypt_key)
-# Store the encrypted password in a new variable
-pw_encrypted = f.encrypt(pw.encode())
-# remove cleartext password from memory
-del pw
+  config['retrieve_from_all'] = {'name': 'Retrieve events from ALL organizations',
+                      'setType': 'bool',
+                      'setting': 'false',
+                      'question': 'Do you want to retrieve events from all organizations? (y/n): '}
 
-# Get the configuration from the saved file if exist
-config_from_file = func_getConfigurationFromFile(config_file_location)
-config_temp.update(config_from_file)    # import config data from file into working area
+  config['separate_orgs'] = {'name': 'Separate events into folders',
+                      'setType':'bool',
+                      'setting': 'false',
+                      'question': 'Do you want to separate events from different organizations into folders? (y/n): '}
 
-# Get name of instance to be able to pull organizations and events
-config_data['enSilo_URL_customer_name']['setting'] = input(config_data['enSilo_URL_customer_name']['question'])
+  config['customer_name'] = {'name': 'enSilo Instance Name',
+                      'setType':'text',
+                      'setting': 'none',
+                      'question': 'Name of enSilo console (HERE.console.ensilo.com): '}
 
-# Populate config variables based on runtime set of config_data
-enSilo_URL_customer_name = config_data['enSilo_URL_customer_name']['setting']
-enSilo_organization_name = config_data['enSilo_organization_name']['setting']
-retrieve_raw_data = config_data['Retrieve_Raw_Data']['setting']
-retrieve_from_all_organizations = config_data['retrieve_from_all_organizations']['setting']
-separate_per_organization = config_data['separate_per_organization']['setting']
-save_config_to_file = config_data['save_config_to_file']['setting']
-
-# Base API URL used to access enSilo API endpoints
-
-organizations_json = APICall(request_type='organization').eventJSON
-list_organizations = func_listOrganizations(organizations_json)    # Populate list of organization names
-
-# This gets the configuration from the user
-if config_temp['error']['result']:
-  logging.info(f'Configuration NOT FOUND, will get config from user')
-  print(f'No configuration found, please configure settings')
-  func_askUserForConfiguration()
-  func_populateConfigData(config_temp)
-  use_existing_config = False
+config = configparser.ConfigParser()
+if isfile(config_file_location):
+  config.read(config_file_location)
 else:
-  func_printConfig(config_temp)
+  func_setDefaultConfig(config)
+
+creds = Credentials()
+
+config_loaded = func_printConfig(config)
+if config_loaded:
   user_input_view_config = input(f'Would you like to use this existing configuration? (y/n): ')
   if user_input_view_config in ('y','Y'):
-    if config_temp['error']['result']:
-        question = input(f'Error retrieving config file. Would you like to continue with manual configuration? (y/n)')
-        if question in ('y','Y'):
-          func_askUserForConfiguration()
-          func_populateConfigData(config_temp)
-          use_existing_config = False
-        if question in ('n','N'):
-          question = input(f'Are you sure you want to exit? (y/n)')
-          if question in ('y','Y'):
-            logging.info(f'Exiting after confirmation from user')
-            exit()
-          if question in ('n','N'):
-            func_askUserForConfiguration()
-            func_populateConfigData(config_temp)
-            use_existing_config = False
-    else:
-      print(f'Using existing configuration')
-      logging.info(f'Using existing configuration')
-      func_populateConfigData(config_temp)
-      print(f'Configuration loaded, moving on')
-      use_existing_config = True
-
+    print(f'Using existing configuration')
+    logging.info(f'Using existing configuration')
+    use_existing_config = True
   if user_input_view_config in ('n','N'):
     func_askUserForConfiguration()
-    func_populateConfigData(config_temp)
     use_existing_config = False
+if not config_loaded:
+  func_askUserForConfiguration()
 
-if not use_existing_config:
-  if config_data['save_config_to_file']['setting']:
-    try:
-      with open(config_file_location, 'w+') as config_outfile:
-        json.dump(config_data, config_outfile)
-        logging.info(f'Config file saved at {config_file_location}')
-    except IOError:
-      print(f'IOError saving configuration file - CONFIGURATION NOT SAVED')
-      logging.info(f'Configuration File NOT SAVED')
+with open(config_file_location, 'w+') as f:
+  config.write(f)
 
-if separate_per_organization:    # Used if set in config
-  event_save_file_location = f'./events/{enSilo_organization_name.replace(" ", "")}/'
+if config.getboolean('separate_orgs','setting'):    # Used if set in config
+  org_set = config.get('organization', 'setting')
+  event_save_file_location=f'./events/{org_set.replace(" ", "")}/'
 else:
   event_save_file_location = './events/'
 
 event_tracking_file_location = './tracking/tracking.txt'
 os.makedirs(os.path.dirname(event_tracking_file_location), exist_ok=True)
 os.makedirs(os.path.dirname(event_save_file_location), exist_ok=True)
+
 # ********END OF CONFIGURATION******
 
 
